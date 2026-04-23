@@ -1,5 +1,7 @@
-from machine import Pin, PWM, time_pulse_us
 import time
+from machine import Pin, PWM, time_pulse_us
+from umqtt.simple import MQTTClient
+import config
 
 # ── Ultrasonic 1 (Lid Control) ─────────
 trigger1 = Pin(5, Pin.OUT)   # D1
@@ -45,7 +47,22 @@ last_trigger_time = 0
 cooldown = 5
 toggle = False
 
+# ── MQTT Client Setup ─────────────────
+client = MQTTClient(config.AIO_USER, config.MQTT_BROKER, user=config.AIO_USER, password=config.AIO_KEY, port=config.MQTT_PORT)
+
+def mqtt_connect():
+    try:
+        client.connect()
+        print("Connected to Adafruit IO")
+    except Exception as e:
+        print("Failed to connect to MQTT:", e)
+
+mqtt_connect()
+
 lid_open = False
+last_lid_status = None
+last_publish_time = 0
+publish_interval = 10  # Publish fill status every 10 seconds
 open_time = 0
 hold_time = 5
 
@@ -55,7 +72,7 @@ while True:
     ir_value = ir.value()
     current_time = time.time()
 
-    print("Lid Distance:", dist1, "cm | Level:", dist2, "cm | IR:", ir_value)
+    # print("Lid Distance:", dist1, "cm | Level:", dist2, "cm | IR:", ir_value)
 
     # 🔴 Ultrasonic 1 → Servo1
     if dist1 <= 5 and not lid_open:
@@ -87,3 +104,23 @@ while True:
         last_trigger_time = current_time
 
     time.sleep(0.5)
+
+    # 🟢 Adafruit IO Data Publishing
+    try:
+        # Publish Lid Status if it changed
+        if lid_open != last_lid_status:
+            status_text = "Open" if lid_open else "Closed"
+            client.publish(config.FEED_LID, status_text)
+            print("Published Lid Status:", status_text)
+            last_lid_status = lid_open
+
+        # Publish Fill Status periodically
+        if current_time - last_publish_time >= publish_interval:
+            client.publish(config.FEED_FILL, str(dist2))
+            print("Published Fill Level:", dist2)
+            last_publish_time = current_time
+            
+    except Exception as e:
+        print("MQTT Publish Error:", e)
+        # Optional: try to reconnect if connection lost
+        # mqtt_connect()
