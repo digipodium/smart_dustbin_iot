@@ -47,25 +47,28 @@ last_trigger_time = 0
 cooldown = 5
 toggle = False
 
+# ── Waste Classification tracking ──────
+waste_classified = False
+classification_type = None
+classification_time = 0
+classification_timeout = 10  # Classification valid for 10 seconds
+servo_moved = False  # Flag to prevent multiple servo activations
+
 # ── MQTT Client Setup ─────────────────
 client = MQTTClient(config.AIO_USER, config.MQTT_BROKER, user=config.AIO_USER, password=config.AIO_KEY, port=config.MQTT_PORT)
 
 def on_message(topic, msg):
     """Callback for incoming MQTT messages."""
+    global waste_classified, classification_type, classification_time
     t = topic.decode()
     m = msg.decode().lower()
     print(f"MQTT Data -> Topic: {t}, Msg: {m}")
     
     if t == config.FEED_CATEGORY:
-        if m == "organic":
-            print("AI Result: ORGANIC -> Moving LEFT")
-            set_angle(servo2, 60)
-        elif m == "recyclable":
-            print("AI Result: RECYCLABLE -> Moving RIGHT")
-            set_angle(servo2, 120)
-        
-        time.sleep(2)
-        set_angle(servo2, 90) # Return to center
+        print(f"AI Result: {m.upper()} - Classification received")
+        waste_classified = True
+        classification_type = m
+        classification_time = time.time()
 
 def mqtt_connect():
     try:
@@ -131,14 +134,42 @@ while True:
         try:
             client.publish(config.FEED_TRIGGER, "1")
             last_trigger_time = current_time
+            time.sleep(20)
+            set_angle(servo2, 120)
+            time.sleep(3)
+            set_angle(servo2, 60)
         except Exception as e:
             print("Failed to trigger camera:", e)
 
-    # 🟣 Check for MQTT messages
-    try:
-        client.check_msg()
-    except Exception as e:
-        print("MQTT check error:", e)
+    print(classification_type)
+    # � Waste Disposal Servo (ONLY moves when waste detected AND classified)
+    if ir_value == 0 and waste_classified and not servo_moved:
+        # Check if classification is still valid (not expired)
+        if (current_time - classification_time) <= classification_timeout:
+            if classification_type == "biodegradable":
+                print("Moving servo RIGHT for BIODEGRADABLE waste")
+                set_angle(servo2, 120)
+                servo_moved = True
+            else:
+                print(f"Moving servo LEFT for {classification_type.upper()} waste")
+                set_angle(servo2, 60)
+                servo_moved = True
+            
+            time.sleep(2)
+            set_angle(servo2, 90)  # Return to center
+        else:
+            print("Classification expired - keeping servo at center")
+            set_angle(servo2, 90)
+            waste_classified = False
+            servo_moved = False
+    
+    # Reset servo when no waste is detected
+    if ir_value != 0 and servo_moved:
+        print("No waste detected - resetting servo to neutral position")
+        set_angle(servo2, 90)
+        servo_moved = False
+        waste_classified = False
+        classification_type = None
 
     time.sleep(0.5)
 

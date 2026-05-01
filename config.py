@@ -1,6 +1,6 @@
 # Wi-Fi Credentials
-WIFI_SSID = "hood hogan"
-WIFI_PASS = "1qa2ws3ed4rf"
+WIFI_SSID = "Shivam"
+WIFI_PASS = "1234567890"
 
 # Adafruit IO Credentials
 AIO_USER = "shubham0123"
